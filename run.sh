@@ -282,6 +282,30 @@ configure_device() {
   echo "  ID: $id"
   echo
 
+  # Get a name for this controller.
+  get_controller_name
+
+  echo
+  echo "Controller name: $CONTROLLER_NAME"
+  echo
+  echo "WARNING:"
+  echo "Use a unique name for this controller."
+  echo "An existing configuration with this name may be overwritten."
+  echo
+
+  read -rp "Continue? [y/N]: " answer
+
+  if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+    echo "Cancelled."
+    read -rp "Press Enter to continue..."
+    setup
+    return
+  fi
+
+  # ----------------------------------------------------------
+  # Load xpad
+  # ----------------------------------------------------------
+
   echo
   echo "\$ sudo modprobe xpad"
 
@@ -293,26 +317,53 @@ configure_device() {
     return
   fi
 
+  # ----------------------------------------------------------
+  # Create udev rule
+  # ----------------------------------------------------------
+
+  local rule_file="/etc/udev/rules.d/90-xpad-${CONTROLLER_NAME}.rules"
+
+  local rule
+  rule="ACTION==\"add\", SUBSYSTEM==\"usb\", ATTR{idVendor}==\"$vendor\", ATTR{idProduct}==\"$product\", RUN+=\"/bin/sh -c 'echo $vendor $product > /sys/bus/usb/drivers/xpad/new_id'\""
+
   echo
+  echo "Creating udev rule:"
+  echo "  $rule_file"
+  echo
+  echo "$rule"
 
-  if grep -q "^$vendor $product$" /sys/bus/usb/drivers/xpad/new_id; then
-    echo "ID $id is already registered with xpad."
-  else
-    echo "\$ echo \"$vendor $product\" | sudo tee /sys/bus/usb/drivers/xpad/new_id"
+  if ! printf '%s\n' "$rule" |
+    sudo tee "$rule_file" >/dev/null
+then
+  echo
+  echo "error: failed to create udev rule"
+  read -rp "Press Enter to continue..."
+  setup
+  return
+  fi
 
-    if ! echo "$vendor $product" |
-      sudo tee /sys/bus/usb/drivers/xpad/new_id >/dev/null
-  then
+  # ----------------------------------------------------------
+  # Reload udev
+  # ----------------------------------------------------------
+
+  echo
+  echo "\$ sudo udevadm control --reload-rules"
+
+  if ! sudo udevadm control --reload-rules; then
     echo
-    echo "error: failed to configure device"
+    echo "error: failed to reload udev rules"
     read -rp "Press Enter to continue..."
     setup
     return
-    fi
   fi
 
   echo
-  echo "Configuration completed for: $id"
+  echo "Configuration completed."
+  echo
+  echo "Controller: $CONTROLLER_NAME"
+  echo "Device:     ${devs[$selected]}"
+  echo "USB ID:     $id"
+  echo "Rule:       $rule_file"
 
   read -rp "Press Enter to continue..."
 
